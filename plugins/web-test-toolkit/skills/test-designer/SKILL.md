@@ -90,9 +90,10 @@ Worked example: `examples/brse.ai.plan.md`.
 ## Hand off (G2)
 Once `coverage.mjs` exits 0, tell the tester in plain Vietnamese: how many cases per priority,
 the REQs waiting for an answer, and the path of `test-plan.md`. Ask them to review and edit the
-table, then say "duyệt". **Only after they say so**, write the approval line
-`> **Duyệt:** ✅ Đã duyệt — <name> — <YYYY-MM-DD HH:mm>` (name from `git config user.name`
-unless they give another). Then hand over to `script-generator`.
+table, then approve it themselves in their own terminal:
+`node "${CLAUDE_PLUGIN_ROOT}/skills/web-test/approve.mjs" <url> G2 --by "<tên>"` (give them the
+command filled in). Never write "Đã duyệt" yourself. Wait until `gate.mjs` shows G2 ✅, then hand
+over to `script-generator`.
 
 ## Gotchas
 - Note staging vs production in the plan; data-mutating cases belong on staging.

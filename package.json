@@ -1,6 +1,6 @@
 {
   "name": "web-test-toolkit",
-  "version": "0.2.1",
+  "version": "0.5.0",
   "description": "Development workspace for the web-test-toolkit Claude Code plugin (plugins/web-test-toolkit/). Testers install the plugin; this package.json only serves unit tests and local runs.",
   "license": "MIT",
   "type": "module",
@@ -13,6 +13,7 @@
     "test:unit": "node --test \"plugins/web-test-toolkit/skills/**/*.test.mjs\"",
     "gate": "node plugins/web-test-toolkit/skills/test-runner/report.mjs",
     "status": "node plugins/web-test-toolkit/skills/web-test/gate.mjs",
+    "approve": "node plugins/web-test-toolkit/skills/web-test/approve.mjs",
     "bugs": "node plugins/web-test-toolkit/skills/result-analyst/bugs.mjs"
   },
   "devDependencies": {

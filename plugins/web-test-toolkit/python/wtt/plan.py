@@ -21,6 +21,12 @@ SCHEMA_VERSION = 1
 
 PRIORITIES = ("high", "medium", "low")
 AUTOMATION_VALUES = ("auto", "partial", "manual", "need_info")
+RUNNABLE = ("auto", "partial")
+
+# The workbook's Automation column is the tick the team sees; the plan keeps the finer decision.
+# auto / partial -> Automated (a script runs it); manual / need_info -> Not Automated.
+AUTOMATED, NOT_AUTOMATED = "Automated", "Not Automated"
+MARK_TO_DECISION = {AUTOMATED: "auto", NOT_AUTOMATED: "manual"}
 TEMPLATE_STATUSES = ("Passed", "Failed", "Blocked", "In progress", "Todo", "N/A")
 
 TEST_ID_PATTERN = re.compile(r"^(?P<function>[A-Za-z][A-Za-z0-9]*)_TC(?P<number>\d{3})$")
@@ -81,6 +87,23 @@ def data_ref_pattern(data_ids: list) -> Optional[re.Pattern]:
 
 
 _ID_LIKE = re.compile(r"(?<![\w-])((?:[A-Z]{2,}|Q)(?:-[A-Z0-9]+)*-?\d+[A-Z0-9-]*)(?![\w-])")
+
+
+def normalize_mark(text: Optional[str]) -> Optional[str]:
+    """'automated' -> 'Automated', 'not  automated' -> 'Not Automated'; other text is returned as is."""
+    if not text:
+        return None
+    key = " ".join(text.replace("-", " ").split()).lower()
+    return {"automated": AUTOMATED, "not automated": NOT_AUTOMATED}.get(key, text)
+
+
+def decision_mark(automation: Optional[str]) -> Optional[str]:
+    """The workbook tick for a plan decision (None while undecided)."""
+    if automation in RUNNABLE:
+        return AUTOMATED
+    if automation in ("manual", "need_info"):
+        return NOT_AUTOMATED
+    return None
 
 
 # ========= Build =========
@@ -151,7 +174,11 @@ def _history(raw_case, status_issues: list) -> dict:
 
 
 def build_plan(raw: RawWorkbook, sheet: RawSheet, imported_at: Optional[str] = None) -> dict:
-    """Convert one workbook sheet into a plan dict. Review fields start empty."""
+    """Convert one workbook sheet into a plan dict. Review fields start empty.
+
+    The workbook's Automation column is kept in 'workbook_automation'; apply_workbook_marks() turns it
+    into decisions (after merge_review() on a re-import), then analyse() again.
+    """
     test_data = _test_data_section(raw)
     ref_pattern = data_ref_pattern(list(test_data))
 
@@ -178,6 +205,7 @@ def build_plan(raw: RawWorkbook, sheet: RawSheet, imported_at: Optional[str] = N
             "expected": split_numbered(values.get("expected")),
             "history": _history(raw_case, status_issues),
             "source": {"sheet": sheet.name, "row": raw_case.row},
+            "workbook_automation": normalize_mark(values.get("automation_mark")),
             "automation": None,
             "review": None,
             "issues": [],
@@ -319,7 +347,20 @@ def analyse(plan: dict) -> dict:
             issues.append(_issue(ERROR, "automation_value",
                                  f"automation '{case['automation']}' không hợp lệ ({', '.join(AUTOMATION_VALUES)})."))
 
+        mark = case.get("workbook_automation")
+        if mark and mark not in MARK_TO_DECISION:
+            issues.append(_issue(WARNING, "workbook_automation_value",
+                                 f"Cột Automation ghi '{mark}', không phải {AUTOMATED} / {NOT_AUTOMATED}: bỏ qua giá trị này."))
+        elif mark and decision_mark(case.get("automation")) not in (None, mark):
+            issues.append(_issue(WARNING, "workbook_automation_differs",
+                                 f"Cột Automation trong workbook ghi '{mark}' nhưng plan quyết định "
+                                 f"'{case['automation']}': sau khi duyệt, write-automation sẽ ghi "
+                                 f"'{decision_mark(case['automation'])}' vào workbook."))
+
         case["issues"] = issues
+
+    from wtt import proposals as _proposals  # late import: proposals builds on this module
+    _proposals.check(plan)
 
     numbers = sorted(int(m.group("number")) for case_id in ids if (m := TEST_ID_PATTERN.match(case_id or "")))
     gaps = [n for n in range(numbers[0], numbers[-1] + 1) if n not in numbers] if numbers else []
@@ -336,6 +377,7 @@ def analyse(plan: dict) -> dict:
         "by_category": count("category"),
         "by_priority": count("priority"),
         "by_automation": count("automation"),
+        "by_workbook_automation": count("workbook_automation"),
         "issues": {
             severity: sum(1 for case in cases for issue in case["issues"] if issue["severity"] == severity)
             for severity in (ERROR, WARNING, INFO)
@@ -346,17 +388,59 @@ def analyse(plan: dict) -> dict:
         },
         "id_gaps": [f"{function}_TC{n:03d}" for n in gaps] if function else [],
         "data_not_ready": sorted(data_id for data_id, item in test_data.items() if not item.get("ready", True)),
+        "proposals": _proposals.counts(plan),
+        "with_execution": sum(1 for case in cases if case.get("execution")),
     }
     return plan
 
 
+# ========= Workbook Automation column -> decision =========
+
+_NO_OLD_CASE = object()
+
+
+def apply_workbook_marks(plan: dict, old_plan: Optional[dict] = None) -> list:
+    """Let a tick in the workbook's Automation column set the plan decision.
+
+    The tick wins when it is new or changed since the previous import (the tester decided in Excel)
+    and the plan decision does not already agree with it. A tick that has not changed since the last
+    import does not undo a later decision in the plan, and does not fill in a decision that a content
+    change reset: the case is flagged instead (workbook_automation_differs) or must be reviewed again.
+    auto / partial agree with Automated, manual / need_info with Not Automated, so a finer decision
+    is kept. Returns the ids whose decision the tick set.
+    """
+    old_cases = {case.get("id"): case for case in (old_plan or {}).get("test_cases") or []}
+    applied = []
+    for case in plan["test_cases"]:
+        mark = case.get("workbook_automation")
+        if mark not in MARK_TO_DECISION:
+            continue
+        old = old_cases.get(case["id"], _NO_OLD_CASE)
+        previous_mark = None if old is _NO_OLD_CASE else old.get("workbook_automation")
+        if old is not _NO_OLD_CASE and previous_mark == mark:
+            continue
+        decision = case.get("automation")
+        if decision_mark(decision) == mark:
+            continue
+        note = f"Theo cột Automation trong workbook: {mark}."
+        earlier = []
+        if decision:
+            earlier.append(f"quyết định trước: {decision}")
+        if case.get("review"):
+            earlier.append(f"ghi chú trước: {case['review']}")
+        case["automation"] = MARK_TO_DECISION[mark]
+        case["review"] = f"{note} ({'; '.join(earlier)})" if earlier else note
+        applied.append(case["id"])
+    return applied
+
+
 # ========= Re-import: keep review decisions =========
 
-REVIEW_FIELDS = ("automation", "review")
+REVIEW_FIELDS = ("automation", "review", "execution")
 
 
 def merge_review(new_plan: dict, old_plan: Optional[dict]) -> list:
-    """Copy automation/review decisions from the previous plan into a re-imported plan.
+    """Copy automation / review / execution from the previous plan into a re-imported plan.
 
     Unchanged cases keep their decisions. Changed cases keep the review text but their
     automation decision is reset, so the plan cannot be approved until they are reviewed again.
@@ -381,7 +465,7 @@ def merge_review(new_plan: dict, old_plan: Optional[dict]) -> list:
 # ========= Approval gate =========
 
 _CONTENT_FIELDS = ("id", "category", "title", "priority", "preconditions", "steps", "test_data", "expected",
-                   "automation", "review", "depends_on")
+                   "automation", "review", "execution", "depends_on")
 
 
 def _content(case: dict) -> dict:
@@ -415,7 +499,38 @@ def approval_blockers(plan: dict) -> list:
                 blockers.append(f"{case['id']} ({automation}) còn lỗi: {' '.join(errors)}")
         if automation in ("partial", "manual", "need_info") and not case.get("review"):
             blockers.append(f"{case['id']} ({automation}): cần ghi lý do vào 'review'.")
+    from wtt import proposals as _proposals
+    blockers.extend(_proposals.blockers(plan))
     return blockers
+
+
+def workbook_marks(plan: dict) -> dict:
+    """{test_id: tick} for every decided case: what write-automation puts in the Automation column."""
+    return {case["id"]: decision_mark(case.get("automation")) for case in plan["test_cases"]
+            if decision_mark(case.get("automation"))}
+
+
+EXECUTION_SCOPES = ("all", "pending", "retest")
+
+
+def execution_cases(plan: dict, scope: str = "all") -> list:
+    """Cases the executor runs: decision auto / partial (ticked Automated), filtered by scope.
+
+    all      every automated case (regression run)
+    pending  automated cases still without a final result in the workbook: not run, in progress, retest
+    retest   automated cases that Failed / Blocked and wait for the next round
+    """
+    if scope not in EXECUTION_SCOPES:
+        raise ValueError(f"scope '{scope}' không hợp lệ ({', '.join(EXECUTION_SCOPES)}).")
+    states = {"all": None, "pending": ("not_run", "in_progress", "retest"), "retest": ("retest",)}[scope]
+    selected = []
+    for case in plan["test_cases"]:
+        if case.get("automation") not in RUNNABLE:
+            continue
+        if states and (case.get("history") or {}).get("state") not in states:
+            continue
+        selected.append(case)
+    return selected
 
 
 def approve(plan: dict, by: str, at: Optional[str] = None) -> dict:
@@ -461,8 +576,10 @@ _Dumper.add_representer(str, _str_representer)
 def save_plan(plan: dict, path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     header = (
-        "# web-test-toolkit test plan. Review fields per case: automation (auto | partial | manual | need_info)\n"
-        "# and review (reason / notes). 'issues' and 'summary' are recomputed by the tool; do not edit them.\n"
+        "# web-test-toolkit test plan. Review fields per case: automation (auto | partial | manual | need_info),\n"
+        "# review (reason / notes) and execution (how to run it). AI proposals: 'proposals' per case (edits) and\n"
+        "# 'proposed_cases' (new cases); their status changes only through 'decide'. 'workbook_automation' is the\n"
+        "# workbook's Automation column as imported; 'issues' and 'summary' are recomputed by the tool.\n"
     )
     body = yaml.dump(plan, Dumper=_Dumper, allow_unicode=True, sort_keys=False, width=110)
     path.write_text(header + body, encoding="utf-8")

@@ -81,11 +81,17 @@ there until the tester approves**. `plugins/web-test-toolkit/skills/web-test/SKI
 
 Gated files carry one line under their title: `> **Duyệt:** ⬜ Chờ duyệt` or
 `> **Duyệt:** ✅ Đã duyệt — <name> — YYYY-MM-DD HH:mm`. `web-test/lib/approval.mjs` is the only
-reader. A gate passes when its file is approved, the previous gate passes, and it was approved no
+reader. Only `web-test/approve.mjs`, run by the tester in their own terminal (it refuses without a
+TTY and asks them to type the gate), writes an approved line, together with
+`.approvals/<gate>.json`; an approved line without a matching record is `unverified` and does not
+pass. A gate passes when its file is approved and verified, the previous gate passes, and it was approved no
 earlier than the previous one; G3 also needs every failed TC of the latest `runs/` snapshot named
 in a `heal-proposal.md` written after that run. Blocked scripts exit **3** with the reason.
-The agent never writes "Đã duyệt" unless the tester said so, and resets the line when it changes
-an approved file's content (the plan's Status column and a bug's Jira key are not content).
+The agent never writes "Đã duyệt" or runs an approve command; it gives the tester the command, and
+resets the line when it changes an approved file's content (the plan's Status column and a bug's
+Jira key are not content). The workbook import works the same way: `wtt_import.py approve` and
+`decide` need the tester's terminal and write `artifacts/<Function>/.approvals/`. Unit tests write
+records with `web-test/lib/approval.testkit.mjs` (Node) or a pseudo-terminal (`run_cli_tty`, Python).
 
 ### The test-plan table is the contract
 

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from conftest import CASES, build_workbook
+from conftest import CASES, build_workbook, needs_pty, run_cli_tty
 from wtt import plan as P
 from wtt.review import functions_yaml_snippet, render_review
 from wtt.workbook import english_label, read_workbook
@@ -192,6 +192,7 @@ def run_cli(*args, cwd):
     return subprocess.run([sys.executable, str(CLI), *args], cwd=cwd, capture_output=True, text=True, timeout=60)
 
 
+@needs_pty
 def test_cli_end_to_end(workbook_path, tmp_path):
     work = tmp_path / "work"
     work.mkdir()
@@ -204,8 +205,8 @@ def test_cli_end_to_end(workbook_path, tmp_path):
         assert (plan_path.parent / name).is_file()
 
     assert run_cli("verify", str(plan_path), cwd=work).returncode == 3
-    refused = run_cli("approve", str(plan_path), "--by", "NCM", cwd=work)
-    assert refused.returncode == 3 and "Chưa duyệt được" in refused.stderr
+    refused = run_cli_tty("approve", str(plan_path), "--by", "NCM", cwd=work, answer="Shop")
+    assert refused.returncode == 3 and "Chưa duyệt được" in refused.output
 
     data = yaml.safe_load(plan_path.read_text(encoding="utf-8"))
     for case in data["test_cases"]:
@@ -214,8 +215,8 @@ def test_cli_end_to_end(workbook_path, tmp_path):
     plan_path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
     assert run_cli("check", str(plan_path), cwd=work).returncode == 0
-    approved = run_cli("approve", str(plan_path), "--by", "NCM", cwd=work)
-    assert approved.returncode == 0, approved.stderr
+    approved = run_cli_tty("approve", str(plan_path), "--by", "NCM", cwd=work, answer="Shop")
+    assert approved.returncode == 0, approved.output
     assert run_cli("verify", str(plan_path), cwd=work).returncode == 0
     assert "✅ Đã duyệt bởi NCM" in (plan_path.parent / "import-review.md").read_text(encoding="utf-8")
 

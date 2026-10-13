@@ -14,12 +14,12 @@ if (!url) {
   process.exit(2);
 }
 
-const ICON = { approved: '✅', pending: '⬜', stale: '⚠️', missing: '—' };
+const ICON = { approved: '✅', pending: '⬜', stale: '⚠️', unverified: '🔒', missing: '—' };
 
 function detail(status) {
   if (status.state === 'approved') return `${status.by} · ${status.at}`;
   if (status.state === 'missing') return 'chưa có';
-  if (status.state === 'stale') return `chưa qua: ${status.reason}`;
+  if (status.state === 'stale' || status.state === 'unverified') return `chưa qua: ${status.reason}`;
   const extra = [status.reason, status.unclassified?.length ? `${status.unclassified.length} TC fail chưa phân loại` : null];
   return ['chờ duyệt', ...extra.filter(Boolean)].join(' · ');
 }

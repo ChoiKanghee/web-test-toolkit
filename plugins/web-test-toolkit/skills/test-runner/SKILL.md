@@ -138,10 +138,10 @@ by self-healer in `heal-proposal.md` before G3 — `gate.mjs` lists the unclassi
 ## Gate G3
 The tester approves `quality-gate.md` when the run is trustworthy: every remaining failure is a
 real bug, script faults were fixed and re-run, and the skips are accepted with their reasons.
-Ask for it only when `gate.mjs` shows no unclassified failure. **Only after the tester says
-"duyệt"**, write the approval line `> **Duyệt:** ✅ Đã duyệt — <name> — <YYYY-MM-DD HH:mm>`
-(name from `git config user.name` unless they give another). Then hand over to
-`result-analyst`.
+Ask for it only when `gate.mjs` shows no unclassified failure. The tester approves it themselves in
+their own terminal: `node "${CLAUDE_PLUGIN_ROOT}/skills/web-test/approve.mjs" <url> G3 --by "<tên>"`
+(give them the command filled in). Never write "Đã duyệt" yourself. Wait until `gate.mjs` shows
+G3 ✅, then hand over to `result-analyst`.
 
 ## Gotchas
 - `report.mjs` needs `BASE_URL` (or a host arg) to know which `artifacts/<host>/` to read.

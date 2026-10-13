@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { recordApprovedLines } from '../web-test/lib/approval.testkit.mjs';
 
 const CONFIG = path.join(path.dirname(fileURLToPath(import.meta.url)), 'playwright.config.mjs');
 const approved = (at) => `> **Duyệt:** ✅ Đã duyệt — Tester — ${at}`;
@@ -14,6 +15,7 @@ function loadConfig(files) {
   const dir = path.join(cwd, 'artifacts', 'app.test');
   mkdirSync(dir, { recursive: true });
   for (const [name, content] of Object.entries(files)) writeFileSync(path.join(dir, name), content);
+  recordApprovedLines(dir);
   const env = { ...process.env, BASE_URL: 'https://app.test' };
   delete env.WEBTEST_HOST;
   const code = `await import(${JSON.stringify(pathToFileURL(CONFIG).href)}); console.log(process.env.WEBTEST_AUTH_DIR);`;

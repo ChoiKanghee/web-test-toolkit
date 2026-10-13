@@ -1,8 +1,5 @@
 # web-test-toolkit
 
-> Dựa trên [web-test-agent](https://github.com/phamvanhoang9/web-test-agent) của Hoang Pham-Van (MIT).
-> web-test-toolkit mở rộng quy trình đó cho automation: tầng thực thi chuyển sang pytest.
-
 **Black-box end-to-end web testing, driven from nothing but a URL.**
 
 ![Playwright](https://img.shields.io/badge/Playwright-%E2%89%A51.49-2EAD33?logo=playwright&logoColor=white)
@@ -26,6 +23,7 @@ No access to the target's source code is required, and none is assumed.
 - [How it works](#how-it-works)
 - [Quick start](#quick-start)
 - [The four steps](#the-four-steps)
+- [Import existing test cases (workbook)](#import-existing-test-cases-workbook)
 - [Approval gates](#approval-gates)
 - [The test plan is the contract](#the-test-plan-is-the-contract)
 - [Two execution paths: PW and MCP](#two-execution-paths-pw-and-mcp)
@@ -35,6 +33,8 @@ No access to the target's source code is required, and none is assumed.
 - [Project structure](#project-structure)
 - [Guardrails](#guardrails)
 - [Troubleshooting](#troubleshooting)
+- [Requirements](#requirements)
+- [License](#license)
 
 ---
 
@@ -56,8 +56,9 @@ limitation away.
 ## How it works
 
 The repository is not an application. It is a **workflow**, packaged as a Claude Code plugin:
-six focused skills under [`plugins/web-test-toolkit/skills/`](plugins/web-test-toolkit/skills/), an orchestrator that
-sequences them, a `setup` skill, and the Node scripts they drive. It follows a tester's four steps, and each step ends at an approval gate.
+seven focused skills under [`plugins/web-test-toolkit/skills/`](plugins/web-test-toolkit/skills/) (six for the four
+steps, plus `test-case-import` for teams that start from an existing workbook), an orchestrator that
+sequences them, a `setup` skill, and the Node and Python scripts they drive. It follows a tester's four steps, and each step ends at an approval gate.
 
 ```mermaid
 flowchart LR
@@ -90,7 +91,7 @@ what it will change. Everything else runs unattended.
 Once per machine, in a terminal:
 
 ```bash
-claude plugin marketplace add ./web-test-toolkit      # hoặc <tài-khoản-github>/web-test-toolkit sau khi push
+claude plugin marketplace add ChoiKanghee/web-test-toolkit      # or ./web-test-toolkit from a local checkout
 ```
 
 ```bash
@@ -205,17 +206,54 @@ instead of steps 1–2. The **test-case-import** skill:
    workbook TC ID (`Persona_TC001`) as the test ID everywhere;
 2. flags what blocks automation: missing required columns, unknown or not-ready test data, example values,
    expected results that cannot be measured, contradictions, dependencies between cases;
-3. records a decision per case, `auto` / `partial` / `manual` / `need_info`, with the reason;
-4. stops at the plan gate: the tester approves with `approve --by <name>`, which stores a hash of the plan.
-   Any later change makes the approval stale, and test generation does not start until `verify` passes.
+3. records a decision per case, `auto` / `partial` / `manual` / `need_info`, with the reason, starting from
+   the workbook's **Automation** column where the tester already ticked one;
+4. when the tester asks, adds what the cases need to run, after looking at the live site: how to run each case
+   (navigation, locators, data, fixtures), clearer content (a concrete expected result, a missing step) and the
+   cases the workbook is missing. Content changes are proposals: the tester accepts or rejects each one, and
+   only accepted ones are written into the workbook, with a line in the Note column;
+5. stops at the plan gate: the tester approves with `approve --by <name>` in their own terminal (as for
+   `decide`, the command asks them to type a confirmation and records it in `.approvals/`), which stores a
+   hash of the plan.
+   Any later change makes the approval stale, and test generation does not start until `verify` passes;
+6. after approval, writes `Automated` / `Not Automated` into the Automation column and lists the Automated
+   cases for execution: only those are generated and run.
 
 ```bash
 python -m pip install -r plugins/web-test-toolkit/python/requirements.txt      # once
 python plugins/web-test-toolkit/python/wtt_import.py import SSKF_TestCase_IT.xlsx
 python plugins/web-test-toolkit/python/wtt_import.py check   artifacts/Persona/test-plan.yaml
-python plugins/web-test-toolkit/python/wtt_import.py approve artifacts/Persona/test-plan.yaml --by "NCM"
+python plugins/web-test-toolkit/python/wtt_import.py decide  artifacts/Persona/test-plan.yaml Persona_TC001#1 Persona_TC070 --accept --by "NCM"   # tester, own terminal
+python plugins/web-test-toolkit/python/wtt_import.py write-changes artifacts/Persona/test-plan.yaml SSKF_TestCase_IT.xlsx
+#      -> SSKF_TestCase_IT_updated.xlsx with the accepted proposals
+python plugins/web-test-toolkit/python/wtt_import.py import SSKF_TestCase_IT_updated.xlsx   # edited cases are reviewed again
+python plugins/web-test-toolkit/python/wtt_import.py approve artifacts/Persona/test-plan.yaml --by "NCM"          # tester, own terminal
 python plugins/web-test-toolkit/python/wtt_import.py verify  artifacts/Persona/test-plan.yaml   # exit 0 = approved
+python plugins/web-test-toolkit/python/wtt_import.py write-automation artifacts/Persona/test-plan.yaml SSKF_TestCase_IT_updated.xlsx --in-place
+#      the Automation column filled (without --in-place: a new <name>_automation.xlsx)
+python plugins/web-test-toolkit/python/wtt_import.py select  artifacts/Persona/test-plan.yaml --scope pending --format pytest-k
 ```
+
+| What the AI adds | Where | Decided by |
+|---|---|---|
+| How to run a case (navigation, locators, data, fixtures, checks) | `execution` in the plan | approved with the plan |
+| Clearer content of a case (`Persona_TC001#1`) | `proposals` on the case | tester, then `write-changes` |
+| A missing case (`Persona_TC070`, next free number) | `proposed_cases` | tester, then `write-changes` |
+
+The plan cannot be approved while a proposal is undecided or accepted but not yet written: the workbook stays the
+source of truth, and an expected result the AI read off the site is labelled as such, because it shows what the
+site does, not what it must do.
+
+| Plan decision | Automation column | Generated and run |
+|---|---|---|
+| `auto`, `partial` | Automated | yes |
+| `manual`, `need_info` | Not Automated | no |
+
+A tick the tester changes in Excel overrides the plan decision on the next import (and the approval goes
+stale); a tick left as it was does not undo a later decision in the plan, which the review page then marks as
+different from the workbook. `write-automation` touches no cell but the Automation column, and refuses a
+workbook that changed since the import. `select --scope` is `all` (regression), `pending` (no final result
+yet) or `retest` (Failed / Blocked, waiting for the next round).
 
 The result columns 1回目 / 2回目 / 3回目 are retest rounds: every case runs in round 1, and a Failed or Blocked
 case is retested in the next round after the fix. The plan records each case's state (`not_run`, `retest`,
@@ -234,8 +272,19 @@ block telling you what to check this time:
 > **Duyệt:** ✅ Đã duyệt — Nguyễn Văn A — 2026-09-28 14:30
 ```
 
-You approve by editing that line, or by saying "duyệt" to the agent, which writes it for you —
-never on its own initiative. A gate passes when its file is approved, the previous gate passes,
+**The tester is the last check at every gate, and the next step starts only after their approval.**
+You approve in your own terminal, not through the agent:
+
+```bash
+node plugins/web-test-toolkit/skills/web-test/approve.mjs https://example.com G2 --by "Nguyễn Văn A"
+```
+
+The command refuses to run without an interactive terminal, asks you to type the gate (`G2`) to confirm,
+then writes the line and a record in `artifacts/<host>/.approvals/G2.json`. The agent has no terminal, so
+it cannot approve for you: when you say "duyệt" in the chat it gives you the command to run. An approved
+line typed by hand or by the agent, without a matching record, shows as 🔒 unverified and does not pass.
+On Windows run it in PowerShell or Windows Terminal (not Git Bash, which has no real terminal for Node
+or Python). A gate passes when its file is approved and verified, the previous gate passes,
 and it was approved no earlier than the previous one: approve the requirements again and the
 test plan needs a new approval too. G3 also needs every failed test case classified by the
 healer. Any content change the agent makes to an approved file resets its line.
@@ -397,21 +446,30 @@ widen coverage beyond Chromium.
 
 The repo is its own plugin marketplace: [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json)
 lists one plugin, [`plugins/web-test-toolkit/`](plugins/web-test-toolkit/). Nothing test-related lives at the repo
-root except `package.json`; everything is under `plugins/web-test-toolkit/skills/`, one folder per skill.
-The Node scripts sit next to the skill that owns them.
+root except `package.json`; everything is under `plugins/web-test-toolkit/`: one folder per skill under
+`skills/`, and the workbook importer under `python/`. The Node scripts sit next to the skill that owns them.
 
 ```
 plugins/web-test-toolkit/
 ├── .claude-plugin/plugin.json   # name and version of the plugin
 ├── .mcp.json                    # chrome-devtools MCP server and its media flags
+├── python/                      # workbook importer used by test-case-import
+│   ├── wtt_import.py            #   import / check / decide / write-changes / approve / verify /
+│   │                            #   write-automation / select
+│   ├── wtt/                     #   workbook, plan, proposals, gate (tester records), review
+│   ├── tests/                   #   pytest suite for the importer
+│   └── requirements.txt
 └── skills/
 
 plugins/web-test-toolkit/skills/
 ├── setup/               # once per work folder: Playwright, Chromium, .gitignore, MCP check
 ├── web-test/            # orchestrator: SKILL.md, checklist.md
 │   ├── gate.mjs         #   npm run status — the four gates and the next step
+│   ├── approve.mjs      #   the tester approves a gate, in their own terminal
 │   └── lib/             #   approval.mjs (the only reader of "Duyệt"), requirements.mjs
 ├── requirement-analyst/ # step 1: SKILL.md, requirements template and examples
+├── test-case-import/    # alternative to steps 1–2: team workbook (.xlsx) -> test-plan.yaml, AI additions,
+│                        #   Automation column
 ├── test-designer/       # step 2: SKILL.md, plan template, examples, resources/knowledge
 │   ├── explore.mjs      #   one page: outline, screenshot, console, network
 │   ├── crawl.mjs        #   whole site, several roles -> crawl/site-map.md

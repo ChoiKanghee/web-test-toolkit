@@ -25,16 +25,26 @@ Invoke each sub-skill in turn by name (`web-test-toolkit:<name>`).
 template) instead of requirements or a URL, skip steps 1–2 and run **test-case-import**: it imports the
 workbook into `artifacts/<Function>/test-plan.yaml`, reviews which cases can be automated, and stops at the
 plan approval gate (`wtt_import.py verify` must exit 0 before any test is generated). The workbook TC ID
-(e.g. `Persona_TC001`) is kept as the test ID everywhere.
+(e.g. `Persona_TC001`) is kept as the test ID everywhere. When the tester wants the AI to add to their cases
+(how to run them, clearer expected results, missing cases), test-case-import covers that too: content changes
+are proposals the tester accepts before they are written into the workbook.
 **Stop at every gate.** Inside step 3, loop test-runner ↔ self-healer until every remaining
 failure is a confirmed real bug.
 
 ## Approval gates
 
-Each step ends at a gate the tester approves by a line under the file's title:
-`> **Duyệt:** ✅ Đã duyệt — <name> — YYYY-MM-DD HH:mm` (pending: `> **Duyệt:** ⬜ Chờ duyệt`).
-A gate passes when its file is approved, the previous gate passes, and it was approved no
-earlier than the previous one; G3 also needs every failed TC of the latest run named in
+Each step ends at a gate **the tester** approves — the tester is the last check, and the next step
+starts only after their approval. They approve in their own terminal:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/skills/web-test/approve.mjs" <url> <G1|G2|G3|G4> --by "<tên>"
+```
+
+It refuses without an interactive terminal, asks them to type the gate, then writes the line under
+the file's title (`> **Duyệt:** ✅ Đã duyệt — <name> — YYYY-MM-DD HH:mm`; pending:
+`> **Duyệt:** ⬜ Chờ duyệt`) and a record in `artifacts/<host>/.approvals/<gate>.json`. An approved
+line without a matching record is 🔒 unverified and does not pass. A gate passes when its file is
+approved and verified, the previous gate passes, and it was approved no earlier than the previous one; G3 also needs every failed TC of the latest run named in
 `heal-proposal.md`. Scripts blocked by a gate exit **3** and say which gate and why.
 
 ```bash
@@ -43,12 +53,16 @@ node "${CLAUDE_PLUGIN_ROOT}/skills/web-test/gate.mjs" https://brse.ai
 shows all four gates and the next step — run it at the start of every session and every step.
 
 Rules for the agent:
-- Never write "Đã duyệt" unless the tester said so in chat; the name comes from
-  `git config user.name` unless they give another.
+- Never write "Đã duyệt" and never run `approve.mjs` (or the import's `approve` / `decide`): they need
+  the tester's terminal. When the tester says "duyệt" in chat, give them the command filled in (URL,
+  gate, their name from `git config user.name` unless they give another) and wait for `gate.mjs`.
+- Never try to get around the terminal check (a pseudo-terminal such as `script`, piping the answer) and
+  never write under `.approvals/`.
 - Any content change to an approved file resets its line to `⬜ Chờ duyệt` (updating the
   plan's Status column and filling a Jira key are not content changes).
 - Stop at every gate, and tell the tester in plain Vietnamese what to check (the file's
-  "Việc của bạn trước khi duyệt" block says it too).
+  "Việc của bạn trước khi duyệt" block says it too). Resetting an approval to `⬜ Chờ duyệt` is always
+  allowed: it only sends the step back to the tester.
 
 ## Orchestrated run (the happy path)
 

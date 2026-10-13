@@ -1,12 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { writeSnapshot } from '../../test-runner/lib/history.mjs';
 import {
-  GateError, PENDING_LINE, gateStatus, parseApproval, requireGate, unclassifiedFailures,
+  GateError, PENDING_LINE, approveGate, gateStatus, nextStep, parseApproval, readRecord, requireGate,
+  unclassifiedFailures,
 } from './approval.mjs';
+import { recordApprovedLines } from './approval.testkit.mjs';
 
 const approved = (at, by = 'Nguyễn Văn A') => `> **Duyệt:** ✅ Đã duyệt — ${by} — ${at}`;
 const doc = (title, line) => `# ${title}\n${line}\n\nNội dung.\n`;
@@ -14,7 +18,7 @@ const doc = (title, line) => `# ${title}\n${line}\n\nNội dung.\n`;
 function bundle(files) {
   const dir = mkdtempSync(path.join(tmpdir(), 'webtest-approval-'));
   for (const [name, content] of Object.entries(files)) writeFileSync(path.join(dir, name), content);
-  return dir;
+  return recordApprovedLines(dir);
 }
 
 test('parseApproval reads name and time; accepts "-" and a missing ✅', () => {
@@ -113,7 +117,7 @@ test('requireGate returns the status when passed and throws a GateError otherwis
   const dir = bundle({ 'requirements.md': doc('R', approved('2026-09-28 10:00')), 'test-plan.md': doc('P', PENDING_LINE) });
   assert.equal(requireGate(dir, 'G1').state, 'approved');
   assert.throws(() => requireGate(dir, 'G2'), (error) => error instanceof GateError
-    && error.message === 'G2 chưa qua: test-plan.md chờ duyệt. Bước tiếp: Tester review và duyệt test-plan.md.');
+    && error.message === 'G2 chưa qua: test-plan.md chờ duyệt. Bước tiếp: Tester review test-plan.md, rồi tự chạy approve.mjs G2 trong terminal.');
 });
 
 test('requireGate names the earliest gate that blocks, with its own reason and next step', () => {
@@ -124,7 +128,7 @@ test('requireGate names the earliest gate that blocks, with its own reason and n
   assert.throws(() => requireGate(malformed, 'G2'), { message: /^G2 chưa qua vì G1 chưa qua: requirements\.md: dòng duyệt sai định dạng/ });
   const pendingBoth = bundle({ 'requirements.md': doc('R', PENDING_LINE), 'test-plan.md': doc('P', PENDING_LINE) });
   assert.throws(() => requireGate(pendingBoth, 'G3'),
-    { message: 'G3 chưa qua vì G1 chưa qua: requirements.md chờ duyệt. Bước tiếp: Tester review và duyệt requirements.md.' });
+    { message: 'G3 chưa qua vì G1 chưa qua: requirements.md chờ duyệt. Bước tiếp: Tester review requirements.md, rồi tự chạy approve.mjs G1 trong terminal.' });
   assert.throws(() => requireGate(g3Bundle(null), 'G4'),
     { message: 'G4 chưa qua vì G3 chưa qua: 2 TC fail chưa phân loại (TC-004, TC-10). Bước tiếp: chạy self-healer cho TC-004, TC-10.' });
 });
@@ -132,4 +136,62 @@ test('requireGate names the earliest gate that blocks, with its own reason and n
 test('only the approval line under the title counts, not an approved line further down', () => {
   const md = `# Plan\n${PENDING_LINE}\n\nVí dụ:\n\n${approved('2026-09-28 14:30')}\n`;
   assert.deepEqual(parseApproval(md), { approved: false, malformed: false });
+});
+
+
+// ---- Only the tester's approve.mjs makes an approved line count ----
+
+function rawBundle(files) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'webtest-approval-raw-'));
+  for (const [name, content] of Object.entries(files)) writeFileSync(path.join(dir, name), content);
+  return dir;
+}
+
+test('an approved line without the tester record is unverified and blocks the gate', () => {
+  const dir = rawBundle({ 'requirements.md': doc('R', approved('2026-09-28 10:00')) });
+  const [g1] = gateStatus(dir);
+  assert.equal(g1.state, 'unverified');
+  assert.match(g1.reason, /không do tester xác nhận bằng approve\.mjs/);
+  assert.equal(nextStep(g1), 'Tester tự chạy approve.mjs G1 trong terminal để duyệt requirements.md');
+  assert.throws(() => requireGate(dir, 'G1'), GateError);
+});
+
+test('a record that does not match the line (name or time edited afterwards) is unverified', () => {
+  const dir = rawBundle({ 'requirements.md': doc('R', PENDING_LINE) });
+  approveGate(dir, 'G1', 'Nguyễn Văn A', '2026-09-28 10:00');
+  assert.equal(gateStatus(dir)[0].state, 'approved');
+  writeFileSync(path.join(dir, 'requirements.md'), doc('R', approved('2026-09-28 10:00', 'Agent')));
+  assert.equal(gateStatus(dir)[0].state, 'unverified');
+});
+
+test('approveGate writes the line and the record, in gate order', () => {
+  const dir = rawBundle({ 'requirements.md': doc('R', PENDING_LINE), 'test-plan.md': '# P\n\nNo approval line yet.\n' });
+  assert.throws(() => approveGate(dir, 'G2', 'B', '2026-09-28 11:00'), /G1 chưa qua/);
+  assert.deepEqual(approveGate(dir, 'G1', ' A ', '2026-09-28 10:00'),
+    { gate: 'G1', file: 'requirements.md', by: 'A', at: '2026-09-28 10:00' });
+  approveGate(dir, 'G2', 'B', '2026-09-28 11:00');
+  assert.equal(readFileSync(path.join(dir, 'test-plan.md'), 'utf8'),
+    '# P\n> **Duyệt:** ✅ Đã duyệt — B — 2026-09-28 11:00\n\nNo approval line yet.\n');
+  assert.deepEqual(readRecord(dir, 'G2'), { gate: 'G2', file: 'test-plan.md', by: 'B', at: '2026-09-28 11:00' });
+  assert.deepEqual(gateStatus(dir).slice(0, 2).map((s) => s.state), ['approved', 'approved']);
+  assert.throws(() => approveGate(dir, 'G3', 'B'), /quality-gate\.md chưa có/);
+  assert.throws(() => approveGate(dir, 'G9', 'B'), /Không có gate G9/);
+  assert.throws(() => approveGate(dir, 'G1', ' '), /Cần tên tester/);
+});
+
+test('approve.mjs refuses without a terminal and writes nothing', async () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'webtest-approve-'));
+  const dir = path.join(cwd, 'artifacts', 'app.test');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, 'requirements.md'), doc('R', PENDING_LINE));
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'approve.mjs');
+  const result = await new Promise((resolve) => {
+    const child = execFile(process.execPath, [script, 'https://app.test', 'G1', '--by', 'A'], { cwd },
+      (error, stdout, stderr) => resolve({ code: error ? error.code : 0, stderr }));
+    child.stdin.end('G1\n');
+  });
+  assert.equal(result.code, 3);
+  assert.match(result.stderr, /phải do tester tự chạy trong terminal/);
+  assert.equal(readFileSync(path.join(dir, 'requirements.md'), 'utf8'), doc('R', PENDING_LINE));
+  assert.equal(readRecord(dir, 'G1'), null);
 });

@@ -69,6 +69,9 @@ already in it and add only the rules that are missing.
 - **Always**, in `permissions.deny`: `Read(./artifacts/**/.auth/**)`. Saved sessions are loaded
   by the scripts; the agent never needs to open them, and a hostile page must not be able to
   talk it into it.
+- **Always**, in `permissions.deny`: `Edit(./artifacts/**/.approvals/**)`,
+  `Write(./artifacts/**/.approvals/**)` and `Bash(script:*)`. Approval records are written only by the
+  tester's own approve commands in their terminal; `script` would fake a terminal for the agent.
 - **Only when step 7 found the server**, in `permissions.allow`: the rule from step 7, so MCP
   cases run without a prompt per click.
 
@@ -85,6 +88,7 @@ Kết quả setup — <thư mục>
 - MCP:         Đã kết nối             | Chưa kết nối — khởi động lại Claude Code rồi chạy lại setup
 - Quyền MCP:   Đã thêm                | Chưa thêm — cần cho phép ghi .claude/settings.local.json (rule: <rule>)
 - Chặn đọc .auth: Đã thêm             | Chưa thêm — cần cho phép ghi .claude/settings.local.json
+- Khoá bản ghi duyệt: Đã thêm         | Chưa thêm — cần cho phép ghi .claude/settings.local.json
 Bước tiếp theo: nói "test trang <url>" kèm đường dẫn tài liệu yêu cầu (nếu có, để ở đâu
 cũng được).
 ```

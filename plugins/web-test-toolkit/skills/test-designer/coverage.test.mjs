@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { recordApprovedLines } from '../web-test/lib/approval.testkit.mjs';
 
 const COVERAGE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'coverage.mjs');
 
@@ -57,6 +58,7 @@ function bundle({ requirements = REQUIREMENTS } = {}) {
     ],
     bundleRoutes: { routes: [{ route: '/settings' }, { route: '/orders' }] },
   }));
+  recordApprovedLines(dir);
   return { cwd, dir };
 }
 

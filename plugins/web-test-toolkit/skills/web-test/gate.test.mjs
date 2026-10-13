@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeSnapshot } from '../test-runner/lib/history.mjs';
+import { recordApprovedLines } from './lib/approval.testkit.mjs';
 
 const GATE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'gate.mjs');
 const approved = (at) => `> **Duyệt:** ✅ Đã duyệt — Tester — ${at}`;
@@ -15,6 +16,7 @@ function bundle(files) {
   const dir = path.join(cwd, 'artifacts', 'app.test');
   mkdirSync(dir, { recursive: true });
   for (const [name, content] of Object.entries(files)) writeFileSync(path.join(dir, name), content);
+  recordApprovedLines(dir);
   return { cwd, dir };
 }
 
@@ -42,7 +44,7 @@ test('an approved G1 and a pending plan ask the tester to review the plan', asyn
   const { stdout } = await runGate(cwd);
   assert.match(stdout, /G1 requirements\.md\s+✅ Tester · 2026-09-28 10:05/);
   assert.match(stdout, /G2 test-plan\.md\s+⬜ chờ duyệt/);
-  assert.match(stdout, /Bước tiếp: Tester review và duyệt test-plan\.md\./);
+  assert.match(stdout, /Bước tiếp: Tester review test-plan\.md, rồi tự chạy approve\.mjs G2 trong terminal\./);
 });
 
 test('failed TCs without a heal proposal send the next step to self-healer', async () => {

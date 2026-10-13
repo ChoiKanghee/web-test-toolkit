@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PENDING_LINE, gateStatus } from '../web-test/lib/approval.mjs';
 import { writeSnapshot } from './lib/history.mjs';
+import { recordApprovedLines } from '../web-test/lib/approval.testkit.mjs';
 
 const REPORT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'report.mjs');
 const RUN_START = new Date('2026-09-27T09:00:00Z');
@@ -65,6 +66,7 @@ function bundle({ mcpTime = AFTER, plan = PLAN, heal = null, snapshots = [] } = 
     utimesSync(file, heal, heal);
   }
   for (const snapshot of snapshots) writeSnapshot(dir, snapshot);
+  recordApprovedLines(dir);
   return { cwd, dir };
 }
 

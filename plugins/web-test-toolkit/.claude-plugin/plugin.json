@@ -1,7 +1,7 @@
 {
   "name": "web-test-toolkit",
   "displayName": "Web Test Toolkit",
-  "version": "0.2.1",
+  "version": "0.5.0",
   "description": "E2E web testing for testers and automation: requirement analysis, test design, execution, result analysis, each ending at a tester approval gate. Based on web-test-agent by Hoang Pham-Van.",
   "author": {
     "name": "NCM"

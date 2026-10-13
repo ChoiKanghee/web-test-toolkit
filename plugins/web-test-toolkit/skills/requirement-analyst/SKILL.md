@@ -165,15 +165,17 @@ change resets the approval line to `⬜ Chờ duyệt`**, and G2 must then be ap
 
 Tell the tester, in plain Vietnamese: how many REQs per status, the open questions, what the
 documents have that the site lacks (and the reverse), and the path of `requirements.md`. Ask them
-to review and edit it, answer or forward the questions, then say "duyệt". **Only after they say
-so**, write the approval line:
+to review and edit it, answer or forward the questions, then approve it **themselves, in their own
+terminal** (not through you):
 
-```
-> **Duyệt:** ✅ Đã duyệt — <name> — <YYYY-MM-DD HH:mm>
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/skills/web-test/approve.mjs" <url> G1 --by "<tên>"
 ```
 
-`<name>` from `git config user.name` unless the tester gives another; time from the local clock.
-Then hand over to `test-designer`.
+Give them the command with the real path and URL filled in. It asks them to type `G1` and writes the
+approval line and its record; you cannot run it (no terminal) and must never write "Đã duyệt"
+yourself — a line without the record does not pass the gate. Wait until `gate.mjs` shows G1 ✅,
+then hand over to `test-designer`.
 
 ## Gotchas
 - Requirement documents belong to the client. They stay where the tester keeps them; never

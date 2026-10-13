@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { recordApprovedLines } from '../web-test/lib/approval.testkit.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BUGS = path.join(HERE, 'bugs.mjs');
@@ -19,6 +20,7 @@ function bundle(report = FIXTURE) {
   writeFileSync(path.join(dir, 'test-plan.md'), `# P\n${approved('2026-09-28 08:30')}\n`);
   writeFileSync(path.join(dir, 'quality-gate.md'), `# Q\n${approved('2026-09-28 10:00')}\n`);
   writeFileSync(path.join(dir, 'bug-report.md'), report);
+  recordApprovedLines(dir);
   return { cwd, dir };
 }
 

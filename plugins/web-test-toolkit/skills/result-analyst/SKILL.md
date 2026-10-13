@@ -62,8 +62,9 @@ report resets its approval line to `⬜ Chờ duyệt`; filling a Jira key does 
 ## Hand off (G4), then export
 
 Tell the tester in plain Vietnamese: the recommendation, new / still open / fixed bugs, and the
-path. After they say "duyệt", write the approval line
-`> **Duyệt:** ✅ Đã duyệt — <name> — <YYYY-MM-DD HH:mm>` (same rule as the other gates), then:
+path. The tester approves it themselves in their own terminal:
+`node "${CLAUDE_PLUGIN_ROOT}/skills/web-test/approve.mjs" <url> G4 --by "<tên>"` (same rule as the
+other gates: never write "Đã duyệt" yourself). Once `gate.mjs` shows G4 ✅:
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/skills/result-analyst/bugs.mjs" https://app.example.com
