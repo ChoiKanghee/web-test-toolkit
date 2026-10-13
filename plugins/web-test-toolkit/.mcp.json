@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest",
+        "--chrome-arg=--use-fake-ui-for-media-stream",
+        "--chrome-arg=--auto-select-desktop-capture-source=Entire screen"
+      ]
+    }
+  }
+}

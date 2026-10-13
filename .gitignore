@@ -1,0 +1,32 @@
+node_modules/
+test-results/
+playwright-report/
+
+# This repo publishes the workflow (the skills), not the output of any run.
+# A bundle under artifacts/<host>/ describes a specific target site — its surface,
+# its risks, its findings — so bundles stay local and are never committed.
+artifacts/
+
+# --- secrets — never commit ---
+.env
+.env.*
+*.env
+
+# --- per-machine state, not project config ---
+.claude/settings.local.json
+.codegraph/
+.scratch/
+
+# --- OS / editor junk ---
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+
+# --- node / playwright extras ---
+npm-debug.log*
+*.log
+blob-report/
+playwright/.cache/

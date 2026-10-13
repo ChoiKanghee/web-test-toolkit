@@ -1,0 +1,12 @@
+{
+  "name": "web-test-toolkit",
+  "description": "Skill-driven E2E web testing workflow for testers and automation",
+  "owner": { "name": "NCM" },
+  "plugins": [
+    {
+      "name": "web-test-toolkit",
+      "source": "./plugins/web-test-toolkit",
+      "description": "Requirement analysis, test design, execution and bug reporting for a website, with tester approval gates"
+    }
+  ]
+}
